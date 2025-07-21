@@ -2,16 +2,42 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
 from services import subject_service, question_service
 from utils.docx_reader import DocxReader
+from gui.styles import ModernStyles
 
 class QuestionCreatorWindow:
     def __init__(self, parent, auth_manager):
         self.parent = parent
         self.current_user = self.parent.current_user
         self.docx_reader = DocxReader()
-        self.window = tk.Toplevel(self.parent.root)
+
+        # Xác định parent window đúng cách
+        if hasattr(parent, 'root'):
+            # Nếu parent có thuộc tính root (ExamBankApp)
+            parent_window = parent.root
+        elif hasattr(parent, 'window'):
+            # Nếu parent có thuộc tính window (AdminWindow, etc.)
+            parent_window = parent.window
+        else:
+            # Fallback
+            parent_window = parent
+
+        self.window = tk.Toplevel(parent_window)
+        self.window.title("📝 Người tạo câu hỏi - Hệ thống Quản lý Đề thi")
+        self.window.geometry("1000x800")
+
+        # Apply modern styling
+        ModernStyles.apply_modern_style()
+        self.window.configure(bg=ModernStyles.COLORS['light'])
+
+        # Center window
+        ModernStyles.center_window(self.window, 1000, 800)
+
         self.setup_ui()
         self.load_subjects()
-    
+
+        # Thêm event handler để đảm bảo parent window được hiển thị khi đóng window này
+        self.window.protocol("WM_DELETE_WINDOW", self.on_closing)
+
     def setup_ui(self):
         """Thiết lập giao diện người làm đề với scroll toàn màn hình"""
         self.window.title("Người làm đề - Hệ thống Quản lý Đề thi")
@@ -31,47 +57,56 @@ class QuestionCreatorWindow:
 
         def on_frame_configure(event):
             canvas.configure(scrollregion=canvas.bbox("all"))
+
         main_frame.bind("<Configure>", on_frame_configure)
 
         def on_canvas_configure(event):
             canvas.itemconfig(main_frame_id, width=event.width)
+
         canvas.bind("<Configure>", on_canvas_configure)
 
         # Header
         header_frame = ttk.Frame(main_frame)
         header_frame.grid(row=0, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        
+
         user_info = self.current_user
-        ttk.Label(header_frame, text=f"Chào mừng: {user_info['full_name']}", 
-                 font=("Arial", 12, "bold")).pack(side=tk.LEFT)
-        
-        ttk.Button(header_frame, text="Đăng xuất", 
-                  command=self.logout).pack(side=tk.RIGHT)
-        
+        ttk.Label(header_frame, text=f"Chào mừng: {user_info['full_name']}",
+                  font=("Arial", 12, "bold")).pack(side=tk.LEFT)
+
+        # Nút quay lại và đăng xuất
+        button_frame = ttk.Frame(header_frame)
+        button_frame.pack(side=tk.RIGHT)
+
+        ttk.Button(button_frame, text="⬅️ Quay lại",
+                   command=self.back_to_admin).pack(side=tk.LEFT, padx=(0, 10))
+
+        ttk.Button(button_frame, text="Đăng xuất",
+                   command=self.logout).pack(side=tk.RIGHT)
+
         # Frame chọn môn học
         subject_frame = ttk.LabelFrame(main_frame, text="Chọn môn học", padding="10")
         subject_frame.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        
+
         ttk.Label(subject_frame, text="Môn học:").grid(row=0, column=0, sticky="w")
-        
+
         self.subject_var = tk.StringVar()
-        self.subject_combo = ttk.Combobox(subject_frame, textvariable=self.subject_var, 
-                                         state="readonly", width=30)
+        self.subject_combo = ttk.Combobox(subject_frame, textvariable=self.subject_var,
+                                          state="readonly", width=30)
         self.subject_combo.grid(row=0, column=1, padx=(10, 0), sticky="w")
-        
+
         # Frame upload file
         upload_frame = ttk.LabelFrame(main_frame, text="Upload file .docx", padding="10")
         upload_frame.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
-        
+
         self.file_path_var = tk.StringVar()
         ttk.Entry(upload_frame, textvariable=self.file_path_var, width=50).grid(row=0, column=0, sticky="ew")
-        
-        ttk.Button(upload_frame, text="Chọn file", 
-                  command=self.select_file).grid(row=0, column=1, padx=(10, 0))
-        
-        ttk.Button(upload_frame, text="Đọc file", 
-                  command=self.read_file).grid(row=1, column=0, columnspan=2, pady=10)
-        
+
+        ttk.Button(upload_frame, text="Chọn file",
+                   command=self.select_file).grid(row=0, column=1, padx=(10, 0))
+
+        ttk.Button(upload_frame, text="Đọc file",
+                   command=self.read_file).grid(row=1, column=0, columnspan=2, pady=10)
+
         # Frame hướng dẫn
         guide_frame = ttk.LabelFrame(main_frame, text="Hướng dẫn định dạng", padding="10")
         guide_frame.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(0, 10))
@@ -106,9 +141,7 @@ class QuestionCreatorWindow:
         stats_frame.columnconfigure(0, weight=1)
         stats_frame.rowconfigure(0, weight=1)
 
-        # Nút refresh thống kê
-        ttk.Button(stats_frame, text="Làm mới thống kê",
-                  command=self.load_statistics).grid(row=1, column=0, pady=10)
+        # Không có nút refresh thống kê
 
         # Cấu hình grid
         self.window.columnconfigure(0, weight=1)
@@ -130,49 +163,54 @@ class QuestionCreatorWindow:
         if subject_id:
             from gui.question_list_window import QuestionListWindow
             QuestionListWindow(self.window, subject_id, subject_name)
-    
+
     def load_subjects(self):
         """Tải danh sách môn học"""
         try:
+            from services.api_client import clear_cache
+
+            # Xóa cache trước khi tải dữ liệu mới
+            clear_cache()
+
             subjects = subject_service.get_subjects()
-            
+
             subject_dict = {}
             subject_names = []
-            
+
             for subject in subjects:
                 subject_dict[subject['name']] = subject['id']
                 subject_names.append(subject['name'])
-            
+
             self.subject_combo['values'] = subject_names
             self.subject_dict = subject_dict
-            
+
             if subject_names:
                 self.subject_combo.set(subject_names[0])
-            
+
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không thể tải danh sách môn học: {str(e)}")
-    
+
     def select_file(self):
         """Chọn file .docx"""
         file_path = filedialog.askopenfilename(
             title="Chọn file .docx",
             filetypes=[("Word documents", "*.docx"), ("All files", "*.*")]
         )
-        
+
         if file_path:
             self.file_path_var.set(file_path)
-    
+
     def read_file(self):
         """Đọc file .docx và import câu hỏi"""
         file_path = self.file_path_var.get().strip()
         subject_name = self.subject_var.get()
-        
+
         if not file_path or not subject_name:
             messagebox.showwarning("Cảnh báo", "Vui lòng chọn file và môn học!")
             return
-        
+
         subject_id = self.subject_dict.get(subject_name)
-        
+
         try:
             # Đọc file .docx và import từng câu hỏi qua question_service.create_question
             # Sử dụng hàm read_docx_file đúng signature
@@ -185,9 +223,14 @@ class QuestionCreatorWindow:
                 messagebox.showerror("Lỗi", message)
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không thể import câu hỏi: {str(e)}")
-    
+
     def load_statistics(self):
         try:
+            from services.api_client import clear_cache
+
+            # Xóa cache trước khi tải dữ liệu mới
+            clear_cache()
+
             subjects = subject_service.get_subjects()
             # Xóa dữ liệu cũ
             for item in self.stats_tree.get_children():
@@ -203,8 +246,24 @@ class QuestionCreatorWindow:
                 ))
         except Exception as e:
             messagebox.showerror("Lỗi", f"Không thể tải thống kê: {str(e)}")
-    
-    def logout(self):
-        self.parent.current_user = None
+
+    def back_to_admin(self):
+        """Quay lại màn hình Admin chính"""
+        # Hiển thị lại cửa sổ admin và đóng cửa sổ hiện tại
+        if hasattr(self.parent, 'window'):
+            self.parent.window.deiconify()  # Hiển thị lại cửa sổ admin
         self.window.destroy()
-        messagebox.showinfo("Thông báo", "Đã đăng xuất thành công!") 
+
+    def logout(self):
+        """Đăng xuất và quay về cửa sổ đăng nhập"""
+        # Chỉ đóng dialog này, không đóng parent window
+        self.window.destroy()
+
+        # Nếu parent là ExamBankApp, quay về login
+        if hasattr(self.parent, 'show_login_after_logout'):
+            self.parent.show_login_after_logout()
+            messagebox.showinfo("Thông báo", "Đã đăng xuất thành công!")
+
+    def on_closing(self):
+        """Xử lý khi đóng window"""
+        self.back_to_admin()

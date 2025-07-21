@@ -1,7 +1,7 @@
 from services.api_client import get, post, put, delete, patch
 
 def login(username, password):
-    return post("/auth/login", json={"username": username, "password": password})
+     return post("/auth/login", json={"username": username, "password": password})
 
 def get_user(user_id):
     return get(f"/users/{user_id}")
